@@ -1,6 +1,6 @@
-
+from dataclasses import replace
 from queue import Queue
-from random import uniform
+from random import Random
 from threading import Event, Lock, Thread
 from time import monotonic, time
 
@@ -8,15 +8,18 @@ from config import (
     AUTO_ARRIVAL_INTERVAL_MAX_SECONDS,
     AUTO_ARRIVAL_INTERVAL_MIN_SECONDS,
     AUTO_GENERATION_ENABLED,
+    MANUAL_VEHICLE_ARRIVAL_DELAY_MAX_SECONDS,
+    MANUAL_VEHICLE_ARRIVAL_DELAY_MIN_SECONDS,
     PARKING_CAPACITY,
     PARKING_DURATION_MAX_SECONDS,
     PARKING_DURATION_MIN_SECONDS,
+    RANDOM_SEED,
     VEHICLE_ARRIVAL_DELAY_MAX_SECONDS,
     VEHICLE_ARRIVAL_DELAY_MIN_SECONDS,
 )
 
 from core.parking import ParkingLot
-from models.vehicle import Vehicle, VehicleStatus
+from models.vehicle import Vehicle
 from threads.vehicle_worker import VehicleWorker
 
 
@@ -24,12 +27,22 @@ class SimulationController:
     """
     Coordina la creación de vehículos, los hilos y
     el inicio, la detención y el reinicio del simulador.
+
+    Política de parada:
+    - Detener: impide nuevas llegadas, cancela a quienes aún esperan
+      y pide la salida de los vehículos estacionados.
+    - Reiniciar: lo anterior, más esperar (join) a que TODOS los
+      hilos terminen antes de limpiar los registros.
+
+    Orden obligatorio al detener: primero se activa el Event de
+    parada y después se solicita la salida de los estacionados.
     """
 
     def __init__(
         self,
         parking_lot: ParkingLot | None = None,
         event_queue: Queue[dict[str, object]] | None = None,
+        seed: int | None = RANDOM_SEED,
     ) -> None:
 
         # Todos los vehículos comparten el mismo parqueadero.
@@ -46,6 +59,11 @@ class SimulationController:
             if event_queue is not None
             else Queue()
         )
+
+        # Generador aleatorio propio y reproducible. Solo se usa
+        # con self._lock adquirido, así que su acceso está serializado.
+        self._seed = seed
+        self._rng = Random(seed)
 
         # Registro de vehículos, trabajadores e hilos.
         self._vehicles: dict[str, Vehicle] = {}
@@ -79,6 +97,27 @@ class SimulationController:
             }
         )
 
+    def _active_thread_names_unlocked(self) -> list[str]:
+        """
+        Nombres de los hilos que siguen vivos.
+
+        Debe ejecutarse con self._lock adquirido.
+        """
+
+        names = [
+            thread.name
+            for thread in self._threads.values()
+            if thread.is_alive()
+        ]
+
+        if (
+            self._generation_thread is not None
+            and self._generation_thread.is_alive()
+        ):
+            names.append(self._generation_thread.name)
+
+        return names
+
     @property
     def is_running(self) -> bool:
         """Indica si la simulación admite nuevas llegadas."""
@@ -87,17 +126,39 @@ class SimulationController:
             return self._running
 
     @property
-    def vehicles(self) -> tuple[Vehicle, ...]:
-        """Devuelve una colección de los vehículos registrados."""
+    def is_idle(self) -> bool:
+        """
+        Indica si no queda ningún hilo de la simulación activo.
+
+        La interfaz puede usarlo para habilitar "Iniciar" solo
+        cuando la ejecución anterior terminó por completo.
+        """
 
         with self._lock:
-            return tuple(self._vehicles.values())
+            return not self._active_thread_names_unlocked()
+
+    @property
+    def vehicles(self) -> tuple[Vehicle, ...]:
+        """
+        Devuelve COPIAS de los vehículos registrados.
+
+        Los trabajadores siguen modificando los objetos originales;
+        la interfaz solo debe leer estas copias.
+        """
+
+        with self._lock:
+            return tuple(
+                replace(vehicle)
+                for vehicle in self._vehicles.values()
+            )
 
     def get_vehicle(self, vehicle_id: str) -> Vehicle | None:
-        """Busca un vehículo por su identificador."""
+        """Busca un vehículo por su identificador (devuelve una copia)."""
 
         with self._lock:
-            return self._vehicles.get(vehicle_id)
+            vehicle = self._vehicles.get(vehicle_id)
+
+            return None if vehicle is None else replace(vehicle)
 
     # --------------------------------------------------
     # INICIAR SIMULACIÓN
@@ -109,6 +170,8 @@ class SimulationController:
         activa la generación automática de vehículos.
 
         Devuelve False si ya estaba en ejecución.
+        Lanza RuntimeError si aún quedan hilos de la ejecución
+        anterior (usa is_idle para comprobarlo antes).
         """
 
         with self._lock:
@@ -118,21 +181,7 @@ class SimulationController:
 
             # No reactivamos el Event mientras quedan hilos
             # de la ejecución anterior.
-            active_threads = [
-                thread.name
-                for thread in self._threads.values()
-                if thread.is_alive()
-            ]
-
-            if (
-                self._generation_thread is not None
-                and self._generation_thread.is_alive()
-            ):
-                active_threads.append(
-                    self._generation_thread.name
-                )
-
-            if active_threads:
+            if self._active_thread_names_unlocked():
                 raise RuntimeError(
                     "Aún hay hilos de la simulación anterior "
                     "en ejecución. Espera a que terminen "
@@ -151,6 +200,7 @@ class SimulationController:
                 self._generation_thread = Thread(
                     target=self._arrival_loop,
                     name="vehicle-generator",
+                    daemon=True,
                 )
 
                 self._generation_thread.start()
@@ -164,13 +214,25 @@ class SimulationController:
     # CREAR VEHÍCULOS
     # --------------------------------------------------
 
-    def add_vehicle(self) -> Vehicle:
+    def add_vehicle(
+        self,
+        arrival_delay: float | None = None,
+    ) -> Vehicle:
         """
         Crea un vehículo, registra su trabajador e inicia su hilo.
 
+        arrival_delay: retraso antes de solicitar acceso. Si es None
+        se sortea dentro del rango configurado.
+
         Solo puede utilizarse mientras la simulación
         admita nuevas llegadas.
+        Devuelve una copia del vehículo creado.
         """
+
+        if arrival_delay is not None and arrival_delay < 0:
+            raise ValueError(
+                "arrival_delay no puede ser negativo."
+            )
 
         with self._lock:
 
@@ -189,12 +251,13 @@ class SimulationController:
             vehicle_id = f"V{self._vehicle_counter:03d}"
 
             # Cada vehículo recibe tiempos independientes.
-            arrival_delay = uniform(
-                VEHICLE_ARRIVAL_DELAY_MIN_SECONDS,
-                VEHICLE_ARRIVAL_DELAY_MAX_SECONDS,
-            )
+            if arrival_delay is None:
+                arrival_delay = self._rng.uniform(
+                    VEHICLE_ARRIVAL_DELAY_MIN_SECONDS,
+                    VEHICLE_ARRIVAL_DELAY_MAX_SECONDS,
+                )
 
-            parking_duration = uniform(
+            parking_duration = self._rng.uniform(
                 PARKING_DURATION_MIN_SECONDS,
                 PARKING_DURATION_MAX_SECONDS,
             )
@@ -213,10 +276,12 @@ class SimulationController:
                 simulation_stop_event=self._simulation_stop_event,
             )
 
-            # Un hilo independiente por vehículo.
+            # Un hilo independiente por vehículo. Es daemon para que
+            # cerrar la aplicación nunca quede bloqueado por ellos.
             thread = Thread(
                 target=worker.run,
                 name=f"vehicle-{vehicle_id}",
+                daemon=True,
             )
 
             # Registramos todo antes de iniciar el hilo.
@@ -244,7 +309,23 @@ class SimulationController:
                 self._vehicle_counter -= 1
                 raise
 
-            return vehicle
+            return replace(vehicle)
+
+    def add_manual_vehicle(self) -> Vehicle:
+        """
+        Crea un vehículo para el botón "Agregar vehículo".
+
+        Usa un retraso de llegada corto para que la acción del
+        usuario se vea casi de inmediato.
+        """
+
+        with self._lock:
+            delay = self._rng.uniform(
+                MANUAL_VEHICLE_ARRIVAL_DELAY_MIN_SECONDS,
+                MANUAL_VEHICLE_ARRIVAL_DELAY_MAX_SECONDS,
+            )
+
+        return self.add_vehicle(arrival_delay=delay)
 
     # --------------------------------------------------
     # GENERACIÓN AUTOMÁTICA
@@ -272,10 +353,11 @@ class SimulationController:
 
                     raise
 
-                interval = uniform(
-                    AUTO_ARRIVAL_INTERVAL_MIN_SECONDS,
-                    AUTO_ARRIVAL_INTERVAL_MAX_SECONDS,
-                )
+                with self._lock:
+                    interval = self._rng.uniform(
+                        AUTO_ARRIVAL_INTERVAL_MIN_SECONDS,
+                        AUTO_ARRIVAL_INTERVAL_MAX_SECONDS,
+                    )
 
                 # Espera interrumpible: no utilizamos sleep().
                 if self._simulation_stop_event.wait(interval):
@@ -296,13 +378,29 @@ class SimulationController:
     # DETENER SIMULACIÓN
     # --------------------------------------------------
 
+    def _request_all_exits(self, reason: str) -> None:
+        """
+        Pide la salida de todos los vehículos estacionados.
+
+        Los que aún no están estacionados ignoran la petición; ellos
+        se cancelan por el Event de parada. Debe llamarse DESPUÉS de
+        activar _simulation_stop_event.
+        """
+
+        with self._lock:
+            workers = tuple(self._workers.values())
+
+        for worker in workers:
+            worker.request_exit(reason)
+
     def stop_simulation(self) -> None:
         """
-        Detiene las llegadas automáticas y cancela las
-        solicitudes que todavía esperan acceso.
+        Detiene las llegadas automáticas, cancela las solicitudes
+        que todavía esperan acceso y pide la salida de los
+        vehículos estacionados.
 
-        Los vehículos ya estacionados pueden finalizar
-        su permanencia normal.
+        Los hilos terminan por sí solos en poco tiempo; usa is_idle
+        para saber cuándo ya no queda ninguno activo.
         """
 
         with self._lock:
@@ -315,6 +413,9 @@ class SimulationController:
             if was_running:
                 self._publish_event("simulation_stopping")
 
+        # Orden: primero el Event de parada, luego las salidas.
+        self._request_all_exits("simulation_stopped")
+
     # --------------------------------------------------
     # SOLICITAR SALIDA MANUAL
     # --------------------------------------------------
@@ -323,36 +424,27 @@ class SimulationController:
         """
         Solicita que un vehículo estacionado salga antes
         de completar su permanencia prevista.
+
+        Lanza ValueError si el vehículo no existe o no está
+        disponible para una salida manual.
         """
 
         with self._lock:
             worker = self._workers.get(vehicle_id)
-            vehicle = self._vehicles.get(vehicle_id)
 
-        if worker is None or vehicle is None:
+        if worker is None:
             raise ValueError(
                 f"No existe el vehículo {vehicle_id}."
             )
 
-        # Verificamos que el vehículo ocupe actualmente
-        # una plaza en el parqueadero.
-        parked_ids = {
-            parked.vehicle_id
-            for parked in self.parking_lot.parked_vehicles
-        }
-
-        if (
-            vehicle_id not in parked_ids
-            or vehicle.status != VehicleStatus.PARKED
-        ):
+        # El trabajador solo acepta la petición si el vehículo
+        # está estacionado y no tiene otra salida pendiente.
+        # El controlador no libera recursos: lo hace el trabajador.
+        if not worker.request_exit("manual_exit"):
             raise ValueError(
                 f"El vehículo {vehicle_id} no está "
                 "disponible para una salida manual."
             )
-
-        # El trabajador liberará la plaza cuando atienda
-        # la señal. El controlador no libera recursos.
-        worker.request_exit()
 
         self._publish_event(
             "vehicle_exit_requested",
@@ -375,15 +467,13 @@ class SimulationController:
             )
 
         with self._lock:
-            workers = tuple(self._workers.values())
             threads = tuple(self._threads.values())
             generation_thread = self._generation_thread
 
         # Solicitamos la salida anticipada a los vehículos
         # estacionados. Los que esperan son cancelados
         # mediante _simulation_stop_event.
-        for worker in workers:
-            worker.request_exit()
+        self._request_all_exits("simulation_stopped")
 
         all_threads = list(threads)
 
@@ -436,6 +526,9 @@ class SimulationController:
         Detiene la simulación, solicita la salida de todos
         los vehículos y limpia el estado cuando sus hilos
         han finalizado correctamente.
+
+        Puede lanzar TimeoutError o RuntimeError: la interfaz debe
+        capturarlas y mostrar una alerta.
         """
 
         self.stop_simulation()
@@ -452,19 +545,39 @@ class SimulationController:
             self._vehicle_counter = 0
             self._generation_thread = None
 
+            # Misma semilla en cada ejecución: experimentos
+            # comparables entre sí.
+            self._rng = Random(self._seed)
+
         self._publish_event("simulation_reset")
 
     # --------------------------------------------------
     # CIERRE DE LA APLICACIÓN
     # --------------------------------------------------
 
-    def shutdown(self, timeout: float = 5.0) -> None:
+    def shutdown(self, timeout: float = 5.0) -> bool:
         """
         Detiene la simulación y permite terminar
         ordenadamente sus hilos antes de cerrar la app.
+
+        Nunca lanza por hilos rezagados (son daemon y no impiden
+        cerrar). Devuelve True si el cierre fue limpio.
         """
 
         self.stop_simulation()
-        self._terminate_workers(timeout)
 
-        self._publish_event("controller_shutdown")
+        try:
+            self._terminate_workers(timeout)
+            clean = True
+
+        except (TimeoutError, RuntimeError) as error:
+            clean = False
+
+            self._publish_event(
+                "controller_error",
+                error=f"{type(error).__name__}: {error}",
+            )
+
+        self._publish_event("controller_shutdown", clean=clean)
+
+        return clean

@@ -1,4 +1,3 @@
-
 from queue import Queue
 from threading import Event
 from time import monotonic, time
@@ -14,6 +13,13 @@ class VehicleWorker:
     No crea ni inicia el hilo directamente.
     El controlador será responsable de ejecutar run()
     dentro de un threading.Thread.
+
+    Mecanismos de sincronización que usa:
+    - simulation_stop_event (Event global): cancela la espera de
+      llegada y la espera de plaza.
+    - _exit_event (Event propio): termina antes la permanencia, ya sea
+      por una salida manual o por la parada de la simulación.
+    - ParkingLot: Semaphore + Lock (internos).
     """
 
     def __init__(
@@ -29,17 +35,32 @@ class VehicleWorker:
         self.simulation_stop_event = simulation_stop_event
 
         # Evento individual para solicitar la salida anticipada
-        # de este vehículo.
+        # de este vehículo, y el motivo que quedará registrado.
         self._exit_event = Event()
+        self._exit_reason = "manual_exit"
 
-    def request_exit(self) -> None:
+    def request_exit(self, reason: str = "manual_exit") -> bool:
         """
         Solicita la salida anticipada del vehículo.
 
-        El controlador deberá permitir esta operación
-        solamente cuando el vehículo esté estacionado.
+        Solo se acepta si el vehículo está estacionado, para que una
+        petición tardía no haga salir al vehículo apenas ingrese.
+        Devuelve True si la petición fue aceptada.
+
+        El controlador usa reason="simulation_stopped" al detener o
+        reiniciar la simulación, para que los vehículos estacionados
+        no tengan que esperar su permanencia completa.
         """
+        if self.vehicle.status != VehicleStatus.PARKED:
+            return False
+
+        if self._exit_event.is_set():
+            # Ya hay una petición previa; se conserva su motivo.
+            return False
+
+        self._exit_reason = reason
         self._exit_event.set()
+        return True
 
     def _publish_event(
         self,
@@ -108,11 +129,14 @@ class VehicleWorker:
                 stop_event=self.simulation_stop_event,
             )
 
-            # Registra el tiempo real empleado en conseguir
-            # una plaza. No incluye arrival_delay.
-            self.vehicle.waiting_time = (
-                monotonic() - waiting_started
-            )
+            # Marca de inicio inmediatamente después de obtener la
+            # plaza: así, pase lo que pase a partir de aquí, el
+            # bloque finally sabe que debe liberarla.
+            parking_started = monotonic()
+
+            # Tiempo real empleado en conseguir una plaza.
+            # No incluye arrival_delay.
+            self.vehicle.waiting_time = parking_started - waiting_started
 
             # Si se canceló mientras esperaba, no estaciona.
             if space_number is None:
@@ -127,8 +151,6 @@ class VehicleWorker:
                 return
 
             # 4. Comienza el estacionamiento.
-            parking_started = monotonic()
-
             self._publish_event(
                 "vehicle_parked",
                 status=self.vehicle.status.value,
@@ -139,14 +161,15 @@ class VehicleWorker:
                 parking_duration=self.vehicle.parking_duration,
             )
 
-            # 5. Espera su tiempo previsto o una solicitud
-            #    de salida anticipada.
-            manual_exit_requested = self._exit_event.wait(
+            # 5. Permanece estacionado hasta que se cumpla su tiempo
+            #    o llegue una solicitud de salida.
+            if self.simulation_stop_event.is_set():
+                # La parada llegó justo cuando ingresaba: no espera.
+                exit_reason = "simulation_stopped"
+            elif self._exit_event.wait(
                 timeout=self.vehicle.parking_duration
-            )
-
-            if manual_exit_requested:
-                exit_reason = "manual_exit"
+            ):
+                exit_reason = self._exit_reason
 
         except Exception as error:
             self._publish_event(
@@ -161,11 +184,12 @@ class VehicleWorker:
         finally:
             # Si consiguió plaza, debe liberarla incluso si
             # ocurre un error durante su permanencia.
-            if space_number is not None and parking_started is not None:
+            if space_number is not None:
 
-                self.vehicle.parking_time = (
-                    monotonic() - parking_started
-                )
+                if parking_started is not None:
+                    self.vehicle.parking_time = (
+                        monotonic() - parking_started
+                    )
 
                 try:
                     # 6. Transición al estado de salida.

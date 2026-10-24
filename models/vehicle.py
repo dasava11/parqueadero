@@ -9,7 +9,7 @@ class VehicleStatus(str, Enum):
     PARKED = "Estacionado"
     EXITING = "Saliendo"
     FINISHED = "Finalizado"
-    CANCELED = "Cancelado"
+    CANCELLED = "Cancelado"
 
 
 @dataclass

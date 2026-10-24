@@ -8,29 +8,36 @@ PARKING_CAPACITY = 20
 # Generación automática de vehículos
 AUTO_GENERATION_ENABLED = True
 
-AUTO_ARRIVAL_INTERVAL_MIN_SECONDS = 3.0
-AUTO_ARRIVAL_INTERVAL_MAX_SECONDS = 6.0
+AUTO_ARRIVAL_INTERVAL_MIN_SECONDS = 0.5
+AUTO_ARRIVAL_INTERVAL_MAX_SECONDS = 1.1
+
+#Generación manual de vehículos
+MANUAL_VEHICLE_ARRIVAL_DELAY_MIN_SECONDS = 0.0
+MANUAL_VEHICLE_ARRIVAL_DELAY_MAX_SECONDS = 1.0
 
 
 # Tiempos individuales de los vehículos
-VEHICLE_ARRIVAL_DELAY_MIN_SECONDS = 5.0
-VEHICLE_ARRIVAL_DELAY_MAX_SECONDS = 15.0
+VEHICLE_ARRIVAL_DELAY_MIN_SECONDS = 3.0
+VEHICLE_ARRIVAL_DELAY_MAX_SECONDS = 9.0
 
-PARKING_DURATION_MIN_SECONDS = 5.0
+PARKING_DURATION_MIN_SECONDS = 10.0
 PARKING_DURATION_MAX_SECONDS = 30.0
 
 
 # Concurrencia
-PARKING_ACQUIRE_POLL_INTERVAL_SECONDS = 0.25
+PARKING_ACQUIRE_POLL_INTERVAL_SECONDS = 0.05
 
 
 # Interfaz gráfica
 UI_REFRESH_INTERVAL_MS = 100
 
 
+RANDOM_SEED = 42
+
+
 # Registro de eventos
 PROJECT_ROOT = Path(__file__).resolve().parent
-EVENT_LOG_PATH = PROJECT_ROOT / "events.csv"
+EVENT_LOG_PATH = PROJECT_ROOT / "logs" / "events.csv"
 
 
 # Validación de configuración
@@ -74,3 +81,14 @@ if (
     raise ValueError(
         "UI_REFRESH_INTERVAL_MS debe ser un entero positivo."
     )
+
+if not (
+    0 <= MANUAL_VEHICLE_ARRIVAL_DELAY_MIN_SECONDS
+    <= MANUAL_VEHICLE_ARRIVAL_DELAY_MAX_SECONDS
+):
+    raise ValueError("El retraso del vehículo manual no es válido.")
+
+if RANDOM_SEED is not None and (
+    isinstance(RANDOM_SEED, bool) or not isinstance(RANDOM_SEED, int)
+):
+    raise ValueError("RANDOM_SEED debe ser un entero o None.")
