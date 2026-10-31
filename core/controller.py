@@ -147,9 +147,8 @@ class SimulationController:
         """
 
         with self._lock:
-            return tuple(
-                replace(vehicle)
-                for vehicle in self._vehicles.values()
+            return self.parking_lot.copy_vehicles(
+                self._vehicles.values()
             )
 
     def get_vehicle(self, vehicle_id: str) -> Vehicle | None:
@@ -158,7 +157,10 @@ class SimulationController:
         with self._lock:
             vehicle = self._vehicles.get(vehicle_id)
 
-            return None if vehicle is None else replace(vehicle)
+            if vehicle is None:
+                return None
+
+            return self.parking_lot.copy_vehicles([vehicle])[0]
 
     # --------------------------------------------------
     # INICIAR SIMULACIÓN

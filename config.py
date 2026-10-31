@@ -2,14 +2,14 @@
 from pathlib import Path
 
 # Parámetros del parqueadero
-PARKING_CAPACITY = 20
+PARKING_CAPACITY = 15
 
 
 # Generación automática de vehículos
 AUTO_GENERATION_ENABLED = True
 
 AUTO_ARRIVAL_INTERVAL_MIN_SECONDS = 0.5
-AUTO_ARRIVAL_INTERVAL_MAX_SECONDS = 1.1
+AUTO_ARRIVAL_INTERVAL_MAX_SECONDS = 1.0
 
 #Generación manual de vehículos
 MANUAL_VEHICLE_ARRIVAL_DELAY_MIN_SECONDS = 0.0

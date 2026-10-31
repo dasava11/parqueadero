@@ -79,7 +79,7 @@ class VehicleWorker:
                 **details,
             }
         )
-
+        
     def run(self) -> None:
         """
         Ejecuta el ciclo de vida completo del vehículo.
@@ -127,6 +127,7 @@ class VehicleWorker:
             space_number = self.parking_lot.occupy_space(
                 vehicle=self.vehicle,
                 stop_event=self.simulation_stop_event,
+                waiting_started=waiting_started,
             )
 
             # Marca de inicio inmediatamente después de obtener la
@@ -134,9 +135,8 @@ class VehicleWorker:
             # bloque finally sabe que debe liberarla.
             parking_started = monotonic()
 
-            # Tiempo real empleado en conseguir una plaza.
-            # No incluye arrival_delay.
-            self.vehicle.waiting_time = parking_started - waiting_started
+            # waiting_time lo registra ParkingLot bajo su Lock (tiempo
+            # real hasta conseguir plaza; no incluye arrival_delay).
 
             # Si se canceló mientras esperaba, no estaciona.
             if space_number is None:
@@ -186,24 +186,25 @@ class VehicleWorker:
             # ocurre un error durante su permanencia.
             if space_number is not None:
 
-                if parking_started is not None:
-                    self.vehicle.parking_time = (
-                        monotonic() - parking_started
-                    )
+                parking_time = (
+                    0.0
+                    if parking_started is None
+                    else monotonic() - parking_started
+                )
 
                 try:
-                    # 6. Transición al estado de salida.
+                    # 6. Transición al estado de salida; parking_time
+                    #    se guarda en el vehículo bajo el Lock del lote.
                     self.parking_lot.mark_exiting(
-                        self.vehicle.vehicle_id
+                        self.vehicle.vehicle_id,
+                        parking_time=parking_time,
                     )
 
                     self._publish_event(
                         "vehicle_exiting",
                         status=VehicleStatus.EXITING.value,
                         parking_space=space_number,
-                        parking_time=round(
-                            self.vehicle.parking_time, 2
-                        ),
+                        parking_time=round(parking_time, 2),
                         reason=exit_reason,
                     )
 
@@ -220,8 +221,6 @@ class VehicleWorker:
                         waiting_time=round(
                             self.vehicle.waiting_time, 2
                         ),
-                        parking_time=round(
-                            self.vehicle.parking_time, 2
-                        ),
+                        parking_time=round(parking_time, 2),
                         reason=exit_reason,
                     )

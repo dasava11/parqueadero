@@ -116,17 +116,17 @@ class ParkingView(tk.Frame):
 
     # ------------------------------------------------------------------ API
     def update_view(self, lot, vehicles, selected_id=None) -> None:
-        """Redibuja todo con el estado actual (se llama desde el hilo UI)."""
         self._tick += 1
-        occupied = lot.occupied_count
-        free = lot.available_count
-        waiting = lot.waiting_count
-        full = lot.is_full
-        capacity = self._capacity_of(lot, occupied, free)
+        snap = lot.get_snapshot()
+        occupied = snap["occupied_count"]
+        free = snap["available_count"]
+        waiting = snap["waiting_count"]
+        full = snap["is_full"]
+        capacity = snap["capacity"]
 
         self._update_status(occupied, free, waiting, full, capacity)
-        self._update_slots(capacity, vehicles, selected_id)
-        self._update_queue(lot, vehicles, waiting)
+        self._update_slots(capacity, snap["spaces"], selected_id)   # snap["spaces"], no vehicles
+        self._update_queue(lot, vehicles, waiting)                  # igual que antes
 
     # ------------------------------------------------------------- semaforo
     def _update_status(self, occupied, free, waiting, full, capacity) -> None:
@@ -216,22 +216,11 @@ class ParkingView(tk.Frame):
         elif capacity in spaces:
             self._base = 1
 
-    def _update_slots(self, capacity, vehicles, selected_id) -> None:
+    def _update_slots(self, capacity, spaces, selected_id) -> None:
         self._ensure_grid(capacity)
-        held = []
-        for v in vehicles:
-            if status_key(get_field(v, "status")) in ("parked", "exiting"):
-                space = get_field(v, "parking_space")
-                if isinstance(space, int):
-                    held.append((space, v))
-        self._detect_base([s for s, _ in held], capacity)
-        base = 1 if self._base is None else self._base
+        base = 1 if self._base is None else self._base   # el backend numera desde 1
 
-        slot_vehicle = [None] * capacity
-        for space, v in held:
-            idx = space - base
-            if 0 <= idx < capacity:
-                slot_vehicle[idx] = v
+        slot_vehicle = list(spaces)   # índice i = plaza base + i
         self._slot_vehicle = slot_vehicle
 
         sig = (base, selected_id, tuple(

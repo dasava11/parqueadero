@@ -1,7 +1,7 @@
 from collections import deque
 from dataclasses import replace
 from threading import BoundedSemaphore, Event, Lock
-from time import sleep
+from time import monotonic, sleep
 
 from config import (
     PARKING_CAPACITY,
@@ -86,6 +86,7 @@ class ParkingLot:
         vehicle: Vehicle,
         stop_event: Event | None = None,
         poll_interval: float = PARKING_ACQUIRE_POLL_INTERVAL_SECONDS,
+        waiting_started: float | None = None,
     ) -> int | None:
         """
         Espera una plaza y asigna un espacio al vehículo.
@@ -177,6 +178,13 @@ class ParkingLot:
                         vehicle.parking_space = space_index + 1
                         vehicle.status = VehicleStatus.PARKED
 
+                        # Mismo Lock que el cambio de estado: una copia
+                        # nunca ve PARKED con la espera sin registrar.
+                        if waiting_started is not None:
+                            vehicle.waiting_time = (
+                                monotonic() - waiting_started
+                            )
+
                         acquired = False
                         assigned = True
 
@@ -198,6 +206,11 @@ class ParkingLot:
 
                 if not assigned:
                     self._remove_waiting_vehicle_unlocked(vehicle_id)
+
+                    if waiting_started is not None:
+                        vehicle.waiting_time = (
+                            monotonic() - waiting_started
+                        )
 
                     if vehicle.status == VehicleStatus.WAITING:
                         vehicle.status = VehicleStatus.CANCELLED
@@ -225,7 +238,9 @@ class ParkingLot:
 
             return index + 1
 
-    def mark_exiting(self, vehicle_id: str) -> None:
+    def mark_exiting(
+        self, vehicle_id: str, parking_time: float | None = None
+    ) -> None:
         """Marca como saliente un vehículo estacionado."""
         with self._lock:
             index = self._find_parked_unlocked(vehicle_id)
@@ -235,7 +250,12 @@ class ParkingLot:
                     f"El vehículo {vehicle_id} no está estacionado."
                 )
 
-            self._spaces[index].status = VehicleStatus.EXITING
+            vehicle = self._spaces[index]
+
+            if parking_time is not None:
+                vehicle.parking_time = parking_time
+
+            vehicle.status = VehicleStatus.EXITING
 
     # ------------------------------------------------------------------
     # Consultas (devuelven copias)
@@ -307,3 +327,9 @@ class ParkingLot:
                 "waiting_count": len(waiting),
                 "is_full": occupied == self.capacity,
             }
+
+    def copy_vehicles(self, vehicles) -> tuple[Vehicle, ...]:
+        """Copias tomadas con el Lock que protege estados y tiempos."""
+        with self._lock:
+            return tuple(self._copy(v) for v in vehicles)
+    

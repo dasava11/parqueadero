@@ -1,21 +1,25 @@
 # Pseudocódigo del simulador de parqueadero
 
 Refleja el diseño actual: cola FIFO, esperas cancelables, salida anticipada,
-despachador único de eventos, métricas y registro en CSV.
+despachador único de eventos, métricas, registro en CSV, tiempos de los vehículos
+escritos bajo el Lock del parqueadero y lectura de la interfaz con una sola fotografía.
 
-Convenciones: `LOCK` = `threading.Lock`, `SEM` = `BoundedSemaphore`,
-`STOP` = Event global de parada, `EXIT_i` = Event de salida del vehículo *i*.
+Convenciones: `LOCK` = `threading.Lock` del parqueadero, `LOCK_C` = `threading.Lock` del
+controlador, `SEM` = `BoundedSemaphore`, `STOP` = Event global de parada,
+`EXIT_i` = Event de salida del vehículo *i*.
 Un hilo **nunca** mantiene un LOCK mientras duerme o espera.
+Orden de bloqueo: `LOCK_C` → `LOCK`, nunca al revés (el parqueadero no llama al controlador).
 
 ---
 
 ## 1. Datos compartidos (ParkingLot)
 
 ```text
+N               ← PARKING_CAPACITY
 espacios        ← lista de N posiciones, todas vacías
 cola_espera     ← cola FIFO vacía
 SEM             ← BoundedSemaphore(N)        # permisos = plazas libres
-LOCK            ← Lock()                     # protege espacios, cola y estados
+LOCK            ← Lock()                     # protege espacios, cola, estados y tiempos
 ```
 
 ## 2. Ciclo de vida de un vehículo (un hilo por vehículo)
@@ -30,9 +34,10 @@ VehicleWorker.run():
 
     inicio_espera ← reloj_monotónico()
     publicar(vehicle_waiting)
-    plaza ← ParkingLot.occupy_space(vehículo, STOP)      # ver sección 3
+    plaza ← ParkingLot.occupy_space(vehículo, STOP, inicio_espera)   # ver sección 3
+    # tiempo_espera lo registra ParkingLot bajo LOCK (no incluye retraso_llegada)
 
-    tiempo_espera ← reloj_monotónico() − inicio_espera   # no incluye retraso_llegada
+    inicio_permanencia ← reloj_monotónico()
     si plaza es NINGUNA:
         publicar(vehicle_cancelled, reason = entry_cancelled);  terminar
 
@@ -45,8 +50,10 @@ VehicleWorker.run():
         motivo ← motivo_pedido_en(request_exit)
 
     # Bloque finally: se ejecuta SIEMPRE que hubo plaza, incluso con errores.
-    ParkingLot.mark_exiting(id);  publicar(vehicle_exiting, motivo)
-    ParkingLot.release_space(id); publicar(vehicle_finished, motivo)
+    tiempo_permanencia ← reloj_monotónico() − inicio_permanencia
+    ParkingLot.mark_exiting(id, tiempo_permanencia)      # guarda el tiempo bajo LOCK
+    publicar(vehicle_exiting, motivo)
+    ParkingLot.release_space(id);  publicar(vehicle_finished, motivo)
 ```
 
 `request_exit(motivo)`: acepta la petición solo si el vehículo está ESTACIONADO
@@ -55,7 +62,7 @@ y no tiene otra pendiente; guarda el motivo y activa `EXIT_i`.
 ## 3. Entrada con cola FIFO (ParkingLot.occupy_space)
 
 ```text
-occupy_space(vehículo, STOP, poll):
+occupy_space(vehículo, STOP, poll, inicio_espera):
     LOCK:
         si el vehículo ya está registrado o su estado no permite entrar: error
         si STOP.is_set(): estado ← CANCELADO;  devolver NINGUNA
@@ -74,6 +81,7 @@ occupy_space(vehículo, STOP, poll):
                     i ← primer índice libre de espacios
                     espacios[i] ← vehículo;  sacar_de_cola(vehículo)
                     plaza ← i + 1;  estado ← ESTACIONADO
+                    tiempo_espera ← reloj_monotónico() − inicio_espera   # mismo LOCK que el estado
                     adquirido ← falso;  asignado ← verdadero
                     devolver plaza
             # Pausa FUERA del LOCK y cancelable:
@@ -81,27 +89,45 @@ occupy_space(vehículo, STOP, poll):
     finalmente:
         LOCK:
             si adquirido: SEM.release()                  # nunca se pierde un permiso
-            si no asignado: quitar_de_cola(vehículo);  estado ← CANCELADO
+            si no asignado:
+                quitar_de_cola(vehículo)
+                tiempo_espera ← reloj_monotónico() − inicio_espera
+                estado ← CANCELADO
 ```
 
 Solo la cabeza de la cola intenta `acquire`: así el orden de entrada es FIFO
 (equivale a FCFS), cosa que el semáforo por sí solo no garantiza.
-Costo: puede pasar hasta `poll` entre una salida y la siguiente entrada.
+Costo: puede pasar hasta `poll` (0.05 s) entre una salida y la siguiente entrada.
 
 ```text
+mark_exiting(id, tiempo_permanencia):
+    LOCK:
+        i ← plaza de id (si no está estacionado: error)
+        vehículo.tiempo_permanencia ← tiempo_permanencia   # junto con el cambio de estado
+        vehículo.estado ← SALIENDO
+
 release_space(id):
     LOCK:
         i ← plaza de id (si no está estacionado: error)
         espacios[i] ← vacío;  estado ← FINALIZADO
         SEM.release()                       # BoundedSemaphore detecta releases de más
         devolver i + 1
+
+copy_vehicles(vehículos):                   # copias coherentes para la interfaz
+    LOCK:
+        devolver copia de cada vehículo     # nunca mezcla estado y tiempos de instantes distintos
+
+get_snapshot():
+    LOCK:                                   # una sola lectura: nada cambia entre campos
+        devolver { capacidad, espacios (copias), cola (copias),
+                   ocupadas, libres, en_espera, lleno }
 ```
 
 ## 4. Controlador (SimulationController)
 
 ```text
 start_simulation():
-    LOCK:
+    LOCK_C:
         si ya está corriendo: devolver falso
         si quedan hilos de la ejecución anterior: error (la UI usa is_idle)
         STOP.clear();  corriendo ← verdadero;  publicar(simulation_started)
@@ -115,14 +141,18 @@ generador():                                # hilo propio
     publicar(generation_stopped)
 
 add_vehicle(retraso = ninguno):
-    LOCK:
+    LOCK_C:
         si no corriendo o STOP.is_set(): error
         id ← "V" + contador;  tiempos ← aleatorios con el RNG
         crear Vehicle, VehicleWorker y Thread(daemon);  registrar;  publicar(vehicle_created)
         iniciar hilo (si falla: deshacer el registro)
 
+vehicles():                                 # lo lee la interfaz
+    LOCK_C:
+        devolver ParkingLot.copy_vehicles(registro)   # toma LOCK dentro de LOCK_C
+
 stop_simulation():
-    LOCK: corriendo ← falso;  STOP.set();  publicar(simulation_stopping)
+    LOCK_C: corriendo ← falso;  STOP.set();  publicar(simulation_stopping)
     # ORDEN OBLIGATORIO: primero STOP, después las salidas.
     para cada worker: worker.request_exit("simulation_stopped")
 
@@ -130,7 +160,7 @@ reset_simulation(timeout):
     stop_simulation()
     esperar (join) a TODOS los hilos, máximo timeout
     verificar: 0 plazas ocupadas y 0 vehículos en espera
-    LOCK: vaciar registros;  contador ← 0;  RNG ← nuevo con la misma semilla
+    LOCK_C: vaciar registros;  contador ← 0;  RNG ← nuevo con la misma semilla
     publicar(simulation_reset)
 
 shutdown(timeout):                          # cerrar la ventana
@@ -179,4 +209,28 @@ tick():                                     # cada UI_REFRESH_INTERVAL_MS, hilo 
 
 al cerrar la ventana:
     cancelar tick;  controller.shutdown();  despachador.drain_all();  logger.close();  destruir ventana
+```
+
+## 7. Refresco de la interfaz (solo hilo principal)
+
+```text
+ventana.refresh():                          # una vez por ciclo de after()
+    vehículos ← controller.vehicles()       # copias coherentes (sección 3)
+    foto ← ParkingLot.get_snapshot()        # UNA sola lectura bajo LOCK
+
+    # Contadores, semáforo y grilla salen de la misma foto:
+    semáforo y contadores ← foto.libres, foto.ocupadas, foto.en_espera, foto.lleno
+    grilla de plazas      ← foto.espacios[i]  (posición i = plaza i + 1)
+    cola FIFO             ← ParkingLot.waiting_vehicles   # lectura aparte, también bajo LOCK
+    tabla de vehículos    ← vehículos
+    métricas              ← Metrics.snapshot()
+    botones               ← controller.is_running, controller.is_idle, vehículo seleccionado
+
+    # Cada bloque se dibuja aislado: si uno falla, los demás se pintan igual.
+    # La interfaz solo lee copias y nunca toca hilos ni modifica el parqueadero.
+
+botones → controller:                       # en el hilo principal
+    Iniciar → start_simulation;  Agregar → add_manual_vehicle;  Detener → stop_simulation
+    Reiniciar → reset_simulation;  Salida manual → request_vehicle_exit(seleccionado)
+    ValueError / RuntimeError / TimeoutError → se muestran como alerta
 ```

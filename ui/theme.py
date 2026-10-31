@@ -25,9 +25,9 @@ RED = "#dc2626"
 BLUE = "#2563eb"
 
 # --- Numeracion de plazas ---------------------------------------------------
-# Si en core/parking.py las plazas se numeran desde 0, pon 0; si desde 1, pon 1.
-# Con None la UI lo detecta sola en cuanto se ocupa la plaza 0 o la ultima.
-SPACE_NUMBER_BASE: int | None = None
+# core/parking.py numera las plazas de 1 a capacidad (occupy_space devuelve
+# indice + 1). Con None la UI lo detectaria sola, pero aqui es un dato conocido.
+SPACE_NUMBER_BASE: int | None = 1
 
 # --- Estilos por estado de vehiculo ----------------------------------------
 # clave (nombre del Enum en minusculas) -> (etiqueta, fondo, texto, color fuerte)
@@ -47,6 +47,27 @@ EXIT_REASON_LABELS = {
     "manual_exit": "manual",
     "simulation_stopped": "por parada",
 }
+
+
+# --- Semaforo del parqueadero -------------------------------------------------
+# Verde: hay plazas. Amarillo: quedan pocas (aviso previo a la saturacion).
+# Rojo: lleno (los vehiculos que lleguen esperan en la cola).
+# Es solo una señal visual: no existe un estado equivalente en el backend.
+LOW_SPACES_FRACTION = 0.2  # amarillo cuando quedan <= 20 % de las plazas libres
+
+
+def low_spaces_threshold(capacity: int) -> int:
+    """Plazas libres a partir de las cuales el semaforo pasa a amarillo."""
+    return max(1, round(capacity * LOW_SPACES_FRACTION))
+
+
+def traffic_light_level(free: int, capacity: int) -> int:
+    """0 = verde, 1 = amarillo, 2 = rojo."""
+    if free <= 0:
+        return 2
+    if free <= low_spaces_threshold(capacity):
+        return 1
+    return 0
 
 
 SCROLLBAR_STYLE = "Modern.Vertical.TScrollbar"
