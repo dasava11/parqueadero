@@ -1,7 +1,7 @@
 # Simulador de Parqueadero Inteligente
 
 Simulador de un parqueadero con **hilos en Python** e interfaz gráfica en **Tkinter**.
-Cada vehículo es un hilo que compite por un recurso limitado (las plazas), igual que
+Cada vehículo es un hilo que compite por un recurso limitado (los espacios), igual que
 los procesos de un Sistema Operativo compiten por la CPU o la memoria. El proyecto
 ilustra **concurrencia, sincronización, exclusión mutua, bloqueo y planificación**.
 
@@ -12,36 +12,36 @@ ilustra **concurrencia, sincronización, exclusión mutua, bloqueo y planificaci
 
 ## 1. Estado del proyecto
 
-| Componente | Estado | Notas |
-|---|---|---|
-| `config.py` | Hecho | Parámetros y validaciones (incluye `RANDOM_SEED`). Capacidad 15 y sondeo de la cola en 0.05 s. |
-| `models/vehicle.py` | Hecho | `Vehicle` y `VehicleStatus` (incluye `CANCELLED`). |
-| `core/parking.py` | Hecho y probado | Semáforo + Lock + cola FIFO. Estados y tiempos de espera/permanencia se escriben bajo el Lock; devuelve copias (`get_snapshot`, `copy_vehicles`). |
-| `threads/vehicle_worker.py` | Hecho y probado | Ciclo de vida del vehículo; `request_exit(reason)`. No escribe tiempos compartidos: los registra `ParkingLot`. |
-| `core/controller.py` | Hecho y probado | Semilla propia, copias bajo el Lock del parqueadero, daemon, `is_idle`, salida manual validada. |
-| `services/dispatcher.py` | Hecho y probado | Único consumidor de la cola de eventos. |
-| `services/event_logger.py` | Hecho y probado | CSV en `logs/events.csv`; tolera timestamps inválidos. |
-| `services/metrics.py` | Hecho y probado | Espera, ocupación, cola, utilización, atendidos y cancelados. |
-| `main.py` | Hecho y probado | Probado sin Tkinter y con la interfaz real: iniciar, detener, reiniciar y cerrar. |
-| `ui/*` | Hecho y probado | Ventana, panel de control, métricas, vista del parqueadero y tema. Ejecutado con Tkinter real, sin errores en la terminal. |
-| Pruebas | Hechas | `tests/`: métricas, despachador, logger, integración sin GUI y `main.py`. |
-| `pseudocodigo.md` | Actualizado | Refleja FIFO, cancelación, salida anticipada, despachador, sincronización de tiempos y la lectura de la interfaz. |
+| Componente                  | Estado          | Notas                                                                                                                                             |
+| --------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config.py`                 | Hecho           | Parámetros y validaciones (incluye `RANDOM_SEED`). Capacidad 15 y sondeo de la cola en 0.05 s.                                                    |
+| `models/vehicle.py`         | Hecho           | `Vehicle` y `VehicleStatus` (incluye `CANCELLED`).                                                                                                |
+| `core/parking.py`           | Hecho y probado | Semáforo + Lock + cola FIFO. Estados y tiempos de espera/permanencia se escriben bajo el Lock; devuelve copias (`get_snapshot`, `copy_vehicles`). |
+| `threads/vehicle_worker.py` | Hecho y probado | Ciclo de vida del vehículo; `request_exit(reason)`. No escribe tiempos compartidos: los registra `ParkingLot`.                                    |
+| `core/controller.py`        | Hecho y probado | Semilla propia, copias bajo el Lock del parqueadero, daemon, `is_idle`, salida manual validada.                                                   |
+| `services/dispatcher.py`    | Hecho y probado | Único consumidor de la cola de eventos.                                                                                                           |
+| `services/event_logger.py`  | Hecho y probado | CSV en `logs/events.csv`; tolera timestamps inválidos.                                                                                            |
+| `services/metrics.py`       | Hecho y probado | Espera, ocupación, cola, utilización, atendidos y cancelados.                                                                                     |
+| `main.py`                   | Hecho y probado | Probado sin Tkinter y con la interfaz real: iniciar, detener, reiniciar y cerrar.                                                                 |
+| `ui/*`                      | Hecho y probado | Ventana, panel de control, métricas, vista del parqueadero y tema. Ejecutado con Tkinter real, sin errores en la terminal.                        |
+| Pruebas                     | Hechas          | `tests/`: métricas, despachador, logger, integración sin GUI y `main.py`.                                                                         |
+| `pseudocodigo.md`           | Actualizado     | Refleja FIFO, cancelación, salida anticipada, despachador, sincronización de tiempos y la lectura de la interfaz.                                 |
 
 ---
 
 ## 2. Analogía con Sistemas Operativos
 
-| Parqueadero | Sistema Operativo |
-|---|---|
-| Vehículo (un hilo) | Proceso que solicita un recurso |
-| Plazas de parqueo | Recurso finito (CPU, memoria) |
-| `BoundedSemaphore(capacidad)` | Control de acceso al recurso |
-| `Lock` | Exclusión mutua en la sección crítica |
-| Vehículo en la cola de espera | Proceso bloqueado esperando el recurso |
-| Cola FIFO | Política de planificación FCFS |
-| Vehículo que sale y libera la plaza | Proceso que termina y libera el recurso |
-| Detener la simulación | El SO termina los procesos y libera sus recursos |
-| Cola de eventos + despachador | Cola de mensajes entre procesos con un único receptor |
+| Parqueadero                         | Sistema Operativo                                     |
+| ----------------------------------- | ----------------------------------------------------- |
+| Vehículo (un hilo)                  | Proceso que solicita un recurso                       |
+| Plazas de parqueo                   | Recurso finito (CPU, memoria)                         |
+| `BoundedSemaphore(capacidad)`       | Control de acceso al recurso                          |
+| `Lock`                              | Exclusión mutua en la sección crítica                 |
+| Vehículo en la cola de espera       | Proceso bloqueado esperando el recurso                |
+| Cola FIFO                           | Política de planificación FCFS                        |
+| Vehículo que sale y libera la plaza | Proceso que termina y libera el recurso               |
+| Detener la simulación               | El SO termina los procesos y libera sus recursos      |
+| Cola de eventos + despachador       | Cola de mensajes entre procesos con un único receptor |
 
 **Precisión importante:** el programa es **un solo proceso de Python con varios hilos**.
 La equivalencia vehículo = proceso es una abstracción didáctica. Además, por el GIL de
@@ -107,17 +107,17 @@ parqueadero/
 
 ### Responsabilidades (principio de responsabilidad única)
 
-| Responsabilidad | Dónde vive |
-|---|---|
-| Crear vehículos (IDs, tiempos aleatorios, hilos) | `core/controller.py` |
-| Ejecutar el ciclo de vida de un vehículo | `threads/vehicle_worker.py` |
-| Gestionar plazas, permisos, ocupación, cola y tiempos de espera/permanencia | `core/parking.py` |
-| Datos y estado de un vehículo | `models/vehicle.py` |
-| Retirar cada evento de la cola y reenviarlo | `services/dispatcher.py` |
-| Calcular métricas | `services/metrics.py` |
-| Registrar eventos | `services/event_logger.py` |
-| Conectar las piezas, bucle `after()` y cierre | `main.py` |
-| Dibujar la interfaz | `ui/*` |
+| Responsabilidad                                                             | Dónde vive                  |
+| --------------------------------------------------------------------------- | --------------------------- |
+| Crear vehículos (IDs, tiempos aleatorios, hilos)                            | `core/controller.py`        |
+| Ejecutar el ciclo de vida de un vehículo                                    | `threads/vehicle_worker.py` |
+| Gestionar plazas, permisos, ocupación, cola y tiempos de espera/permanencia | `core/parking.py`           |
+| Datos y estado de un vehículo                                               | `models/vehicle.py`         |
+| Retirar cada evento de la cola y reenviarlo                                 | `services/dispatcher.py`    |
+| Calcular métricas                                                           | `services/metrics.py`       |
+| Registrar eventos                                                           | `services/event_logger.py`  |
+| Conectar las piezas, bucle `after()` y cierre                               | `main.py`                   |
+| Dibujar la interfaz                                                         | `ui/*`                      |
 
 `Vehicle` son los **datos**, `VehicleWorker` es el **trabajo** que realiza el vehículo y
 `Thread` es el **hilo de ejecución** donde se realiza ese trabajo.
@@ -126,15 +126,15 @@ parqueadero/
 
 ## 5. Concurrencia y sincronización
 
-| Mecanismo | Dónde | Función |
-|---|---|---|
-| `BoundedSemaphore(capacidad)` | `ParkingLot` | Cuenta los permisos (plazas libres). Detecta cualquier `release` de más. |
-| `Lock` | `ParkingLot` | Protege plazas, cola de espera, estados y tiempos de los vehículos. La sección crítica es corta: **nunca** se mantiene durante esperas ni `sleep`. |
-| `Lock` | `SimulationController` | Protege los registros de vehículos, workers e hilos, el generador aleatorio y el contador de IDs. |
-| `Lock` | `EventLogger`, `Metrics` | Protegen su estado interno. |
-| `Event` de parada global | Controller → todos los workers | Cancela la espera de llegada y la espera de plaza. |
-| `Event` individual de salida | Cada `VehicleWorker` | Termina antes la permanencia (salida manual o parada de la simulación). |
-| `queue.Queue` de eventos | Workers y controller → despachador | Comunicación segura con Tkinter. |
+| Mecanismo                     | Dónde                              | Función                                                                                                                                            |
+| ----------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BoundedSemaphore(capacidad)` | `ParkingLot`                       | Cuenta los permisos (plazas libres). Detecta cualquier `release` de más.                                                                           |
+| `Lock`                        | `ParkingLot`                       | Protege plazas, cola de espera, estados y tiempos de los vehículos. La sección crítica es corta: **nunca** se mantiene durante esperas ni `sleep`. |
+| `Lock`                        | `SimulationController`             | Protege los registros de vehículos, workers e hilos, el generador aleatorio y el contador de IDs.                                                  |
+| `Lock`                        | `EventLogger`, `Metrics`           | Protegen su estado interno.                                                                                                                        |
+| `Event` de parada global      | Controller → todos los workers     | Cancela la espera de llegada y la espera de plaza.                                                                                                 |
+| `Event` individual de salida  | Cada `VehicleWorker`               | Termina antes la permanencia (salida manual o parada de la simulación).                                                                            |
+| `queue.Queue` de eventos      | Workers y controller → despachador | Comunicación segura con Tkinter.                                                                                                                   |
 
 Reglas que se respetan en todo el código:
 
@@ -197,23 +197,23 @@ congelar Tkinter.
 Todos los eventos son diccionarios con al menos `type` y `timestamp` (segundos epoch).
 Los de vehículo incluyen también `vehicle_id`.
 
-| Evento | Origen | Datos adicionales |
-|---|---|---|
-| `simulation_started` | controller | `auto_generation` |
-| `vehicle_created` | controller | `arrival_delay`, `parking_duration` |
-| `vehicle_approaching` | worker | `status`, `arrival_delay` |
-| `vehicle_waiting` | worker | `status` |
-| `vehicle_parked` | worker | `parking_space`, `waiting_time`, `parking_duration` |
-| `vehicle_exit_requested` | controller | |
-| `vehicle_exiting` | worker | `parking_space`, `parking_time`, `reason` |
-| `vehicle_finished` | worker | `released_space`, `waiting_time`, `parking_time`, `reason` |
-| `vehicle_cancelled` | worker | `reason` (`simulation_stopped_before_arrival` o `entry_cancelled`), `waiting_time` |
-| `vehicle_error` | worker | `error` |
-| `simulation_stopping` | controller | |
-| `generation_stopped` | controller | |
-| `simulation_reset` | controller | |
-| `controller_error` | controller | `error` |
-| `controller_shutdown` | controller | `clean` |
+| Evento                   | Origen     | Datos adicionales                                                                  |
+| ------------------------ | ---------- | ---------------------------------------------------------------------------------- |
+| `simulation_started`     | controller | `auto_generation`                                                                  |
+| `vehicle_created`        | controller | `arrival_delay`, `parking_duration`                                                |
+| `vehicle_approaching`    | worker     | `status`, `arrival_delay`                                                          |
+| `vehicle_waiting`        | worker     | `status`                                                                           |
+| `vehicle_parked`         | worker     | `parking_space`, `waiting_time`, `parking_duration`                                |
+| `vehicle_exit_requested` | controller |                                                                                    |
+| `vehicle_exiting`        | worker     | `parking_space`, `parking_time`, `reason`                                          |
+| `vehicle_finished`       | worker     | `released_space`, `waiting_time`, `parking_time`, `reason`                         |
+| `vehicle_cancelled`      | worker     | `reason` (`simulation_stopped_before_arrival` o `entry_cancelled`), `waiting_time` |
+| `vehicle_error`          | worker     | `error`                                                                            |
+| `simulation_stopping`    | controller |                                                                                    |
+| `generation_stopped`     | controller |                                                                                    |
+| `simulation_reset`       | controller |                                                                                    |
+| `controller_error`       | controller | `error`                                                                            |
+| `controller_shutdown`    | controller | `clean`                                                                            |
 
 Valores de `reason` en `vehicle_exiting` y `vehicle_finished`:
 `parking_duration_elapsed`, `manual_exit`, `simulation_stopped`.
@@ -225,13 +225,13 @@ consumidores no deben suponer ese orden.
 
 ## 7. Detener, reiniciar y cerrar
 
-| Acción | Qué hace |
-|---|---|
-| **Iniciar** | Limpia el Event de parada, marca la simulación como activa y lanza el generador automático (si `AUTO_GENERATION_ENABLED`). Falla si aún quedan hilos de una ejecución anterior: la interfaz lo habilita solo con `controller.is_idle`. |
-| **Agregar vehículo** | `add_manual_vehicle()`: crea un `Vehicle`, su `VehicleWorker` y su `Thread`, con un retraso de llegada corto. Solo con la simulación activa. |
-| **Detener** | Impide nuevas llegadas, cancela a quienes aún no se han estacionado y pide la salida de los estacionados (`simulation_stopped`). Los hilos terminan en milisegundos. |
-| **Reiniciar** | Detiene, espera (`join`) a **todos** los hilos, verifica que no queden ocupadas ni esperando, y recién entonces limpia los registros y recrea el generador aleatorio con la misma semilla. |
-| **Cerrar la ventana** | `Application.close()`: `shutdown()`, vaciado final de la cola, cierre del CSV y destrucción de la ventana. |
+| Acción                | Qué hace                                                                                                                                                                                                                               |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Iniciar**           | Limpia el Event de parada, marca la simulación como activa y lanza el generador automático (si `AUTO_GENERATION_ENABLED`). Falla si aún quedan hilos de una ejecución anterior: la interfaz lo habilita solo con `controller.is_idle`. |
+| **Agregar vehículo**  | `add_manual_vehicle()`: crea un `Vehicle`, su `VehicleWorker` y su `Thread`, con un retraso de llegada corto. Solo con la simulación activa.                                                                                           |
+| **Detener**           | Impide nuevas llegadas, cancela a quienes aún no se han estacionado y pide la salida de los estacionados (`simulation_stopped`). Los hilos terminan en milisegundos.                                                                   |
+| **Reiniciar**         | Detiene, espera (`join`) a **todos** los hilos, verifica que no queden ocupadas ni esperando, y recién entonces limpia los registros y recrea el generador aleatorio con la misma semilla.                                             |
+| **Cerrar la ventana** | `Application.close()`: `shutdown()`, vaciado final de la cola, cierre del CSV y destrucción de la ventana.                                                                                                                             |
 
 Al **detener**, las plazas se liberan de verdad (igual que un SO libera los recursos de los
 procesos que termina): la grilla y la cola quedan vacías y los vehículos pasan a
@@ -246,18 +246,18 @@ Como el reinicio espera a que **todos** los hilos antiguos terminen antes de reu
 
 ## 8. Configuración (`config.py`)
 
-| Parámetro | Valor | Descripción |
-|---|---|---|
-| `PARKING_CAPACITY` | 15 | Plazas del parqueadero |
-| `AUTO_GENERATION_ENABLED` | True | Genera vehículos automáticamente |
-| `AUTO_ARRIVAL_INTERVAL_MIN/MAX_SECONDS` | 0.5 / 1.0 | Intervalo entre llegadas automáticas |
-| `MANUAL_VEHICLE_ARRIVAL_DELAY_MIN/MAX_SECONDS` | 0 / 1 | Retraso del botón "Agregar vehículo" |
-| `VEHICLE_ARRIVAL_DELAY_MIN/MAX_SECONDS` | 3 / 9 | Retraso individual antes de pedir acceso |
-| `PARKING_DURATION_MIN/MAX_SECONDS` | 10 / 30 | Permanencia estacionado |
-| `PARKING_ACQUIRE_POLL_INTERVAL_SECONDS` | 0.05 | Pausa entre intentos de la cola FIFO |
-| `UI_REFRESH_INTERVAL_MS` | 100 | Periodo del `after()` de la interfaz |
-| `RANDOM_SEED` | 42 | Semilla para tiempos reproducibles |
-| `EVENT_LOG_PATH` | `logs/events.csv` | Archivo de registro |
+| Parámetro                                      | Valor             | Descripción                              |
+| ---------------------------------------------- | ----------------- | ---------------------------------------- |
+| `PARKING_CAPACITY`                             | 15                | Plazas del parqueadero                   |
+| `AUTO_GENERATION_ENABLED`                      | True              | Genera vehículos automáticamente         |
+| `AUTO_ARRIVAL_INTERVAL_MIN/MAX_SECONDS`        | 0.5 / 1.0         | Intervalo entre llegadas automáticas     |
+| `MANUAL_VEHICLE_ARRIVAL_DELAY_MIN/MAX_SECONDS` | 0 / 1             | Retraso del botón "Agregar vehículo"     |
+| `VEHICLE_ARRIVAL_DELAY_MIN/MAX_SECONDS`        | 3 / 9             | Retraso individual antes de pedir acceso |
+| `PARKING_DURATION_MIN/MAX_SECONDS`             | 10 / 30           | Permanencia estacionado                  |
+| `PARKING_ACQUIRE_POLL_INTERVAL_SECONDS`        | 0.05              | Pausa entre intentos de la cola FIFO     |
+| `UI_REFRESH_INTERVAL_MS`                       | 100               | Periodo del `after()` de la interfaz     |
+| `RANDOM_SEED`                                  | 42                | Semilla para tiempos reproducibles       |
+| `EVENT_LOG_PATH`                               | `logs/events.csv` | Archivo de registro                      |
 
 **Carga esperada** (ley de Little, estimación): llegada media ≈ 1 / 0.75 s ≈ 1.33 vehículos/s
 y permanencia media 20 s darían una carga ofrecida de ≈ 27 plazas ocupadas, por encima de las
@@ -332,11 +332,11 @@ Innovación: salida manual de un vehículo estacionado (clic en la plaza o en la
 
 Se ejecutan sin interfaz desde la raíz del proyecto:
 
-| Archivo | Qué comprueba |
-|---|---|
-| `tests/test_metrics_dispatcher.py` | Cálculo de métricas con un escenario manual, datos inválidos, despachador con un manejador roto, CSV y robustez del logger (timestamps inválidos, fórmulas, sesiones). |
-| `tests/test_integration.py` | Controller + workers + despachador + métricas + logger con tiempos reducidos: invariantes cada 5 ms, salida manual, detener, reanudar, tres reinicios, cierre, secuencias de eventos válidas y semilla reproducible. |
-| `tests/test_main.py` | `Application` de `main.py` con un `root` y una ventana falsos: bucle `after()`, cierre ordenado (dos veces), cola vacía y aislamiento de una vista que falla. |
+| Archivo                            | Qué comprueba                                                                                                                                                                                                        |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/test_metrics_dispatcher.py` | Cálculo de métricas con un escenario manual, datos inválidos, despachador con un manejador roto, CSV y robustez del logger (timestamps inválidos, fórmulas, sesiones).                                               |
+| `tests/test_integration.py`        | Controller + workers + despachador + métricas + logger con tiempos reducidos: invariantes cada 5 ms, salida manual, detener, reanudar, tres reinicios, cierre, secuencias de eventos válidas y semilla reproducible. |
+| `tests/test_main.py`               | `Application` de `main.py` con un `root` y una ventana falsos: bucle `after()`, cierre ordenado (dos veces), cola vacía y aislamiento de una vista que falla.                                                        |
 
 La interfaz Tkinter se probó a mano: iniciar, agregar vehículo, salida manual, detener,
 reiniciar y cerrar la ventana, sin errores en la terminal.

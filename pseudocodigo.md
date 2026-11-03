@@ -1,12 +1,8 @@
 # Pseudocódigo del simulador de parqueadero
 
-Refleja el diseño actual: cola FIFO, esperas cancelables, salida anticipada,
-despachador único de eventos, métricas, registro en CSV, tiempos de los vehículos
-escritos bajo el Lock del parqueadero y lectura de la interfaz con una sola fotografía.
-
 Convenciones: `LOCK` = `threading.Lock` del parqueadero, `LOCK_C` = `threading.Lock` del
 controlador, `SEM` = `BoundedSemaphore`, `STOP` = Event global de parada,
-`EXIT_i` = Event de salida del vehículo *i*.
+`EXIT_i` = Event de salida del vehículo _i_.
 Un hilo **nunca** mantiene un LOCK mientras duerme o espera.
 Orden de bloqueo: `LOCK_C` → `LOCK`, nunca al revés (el parqueadero no llama al controlador).
 
