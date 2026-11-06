@@ -1,4 +1,4 @@
-"""Ventana principal. Cumple el contrato que usa main.py:
+"""Ventana principal. Aprovecha main.py:
 
     MainWindow(root, controller, metrics)
     on_event(evento)   -> una vez por evento, en el hilo principal
