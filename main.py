@@ -18,14 +18,6 @@ Contrato que debe cumplir ui/main_window.py:
         RuntimeError / ValueError / TimeoutError y mostrarlos como alerta,
         y habilitar "Iniciar" solo cuando controller.is_idle sea True.
 
-    on_event(event: dict) -> None      (opcional)
-        Se llama una vez por cada evento, en el hilo principal.
-
-    refresh() -> None                  (opcional)
-        Se llama una vez por ciclo, después de procesar los eventos:
-        redibuja plazas, cola, contadores y métricas leyendo
-        controller.parking_lot.get_snapshot(), controller.vehicles y
-        metrics.snapshot().
 
 Reglas: la interfaz solo se toca desde el hilo principal (bucle after);
 los hilos de vehículos nunca ven la ventana.

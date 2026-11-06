@@ -16,7 +16,7 @@ class VehicleWorker:
 
     Mecanismos de sincronización que usa:
     - simulation_stop_event (Event global): cancela la espera de
-      llegada y la espera de plaza.
+      llegada y la espera del espacio.
     - _exit_event (Event propio): termina antes la permanencia, ya sea
       por una salida manual o por la parada de la simulación.
     - ParkingLot: Semaphore + Lock (internos).
@@ -34,8 +34,7 @@ class VehicleWorker:
         self.event_queue = event_queue
         self.simulation_stop_event = simulation_stop_event
 
-        # Evento individual para solicitar la salida anticipada
-        # de este vehículo, y el motivo que quedará registrado.
+        # Evento individual para solicitar la salida anticipada de este vehículo, y el motivo que quedará registrado.
         self._exit_event = Event()
         self._exit_reason = "manual_exit"
 

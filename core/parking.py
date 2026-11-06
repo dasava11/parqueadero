@@ -16,12 +16,12 @@ class ParkingLot:
     del parqueadero.
 
     Mecanismos de sincronización:
-    - BoundedSemaphore: cuenta los permisos (plazas libres).
-    - Lock: protege plazas, cola de espera y estados (exclusión mutua).
+    - BoundedSemaphore: cuenta los permisos (espacios libres).
+    - Lock: protege espacios, cola de espera y estados (exclusión mutua).
     - Event (externo): permite cancelar las esperas.
 
     La cola de espera sigue una política FIFO:
-    el primer vehículo que llega es el primero en obtener una plaza.
+    el primer vehículo que llega es el primero en obtener un espacio.
 
     Las propiedades de consulta y get_snapshot() devuelven COPIAS de
     los vehículos, para que la interfaz y las métricas nunca lean
@@ -53,9 +53,8 @@ class ParkingLot:
         # Protege las estructuras compartidas.
         self._lock = Lock()
 
-    # ------------------------------------------------------------------
+
     # Utilidades internas (se ejecutan con self._lock ya adquirido)
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _copy(vehicle: Vehicle | None) -> Vehicle | None:
@@ -77,9 +76,8 @@ class ParkingLot:
             if vehicle.vehicle_id != vehicle_id
         )
 
-    # ------------------------------------------------------------------
+
     # Operaciones principales
-    # ------------------------------------------------------------------
 
     def occupy_space(
         self,
@@ -93,7 +91,7 @@ class ParkingLot:
 
         Respeta el orden FIFO de la cola.
 
-        Devuelve el número de la plaza asignada (1..capacidad).
+        Devuelve el número del espacio asignado (1..capacidad).
         Devuelve None si la operación se cancela.
         """
         if poll_interval <= 0:
@@ -257,13 +255,12 @@ class ParkingLot:
 
             vehicle.status = VehicleStatus.EXITING
 
-    # ------------------------------------------------------------------
+
     # Consultas (devuelven copias)
-    # ------------------------------------------------------------------
 
     @property
     def spaces(self) -> tuple[Vehicle | None, ...]:
-        """Copia de las plazas del parqueadero."""
+        """Copia de los espacios del parqueadero."""
         with self._lock:
             return tuple(self._copy(v) for v in self._spaces)
 
@@ -283,13 +280,13 @@ class ParkingLot:
 
     @property
     def occupied_count(self) -> int:
-        """Número de plazas ocupadas."""
+        """Número de espacios ocupados."""
         with self._lock:
             return sum(v is not None for v in self._spaces)
 
     @property
     def available_count(self) -> int:
-        """Número de plazas libres."""
+        """Número de espacios libres."""
         with self._lock:
             return sum(v is None for v in self._spaces)
 

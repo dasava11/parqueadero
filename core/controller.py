@@ -46,6 +46,8 @@ class SimulationController:
     ) -> None:
 
         # Todos los vehículos comparten el mismo parqueadero.
+        # validación para no caer en error de tipo si se pasa None, pero no debería suceder en la práctica.
+        # Debido a que PARKING_CAPACITY es una constante, no se espera que sea None, pero se maneja por seguridad.
         self.parking_lot = (
             parking_lot
             if parking_lot is not None
@@ -100,7 +102,6 @@ class SimulationController:
     def _active_thread_names_unlocked(self) -> list[str]:
         """
         Nombres de los hilos que siguen vivos.
-
         Debe ejecutarse con self._lock adquirido.
         """
 
@@ -162,9 +163,8 @@ class SimulationController:
 
             return self.parking_lot.copy_vehicles([vehicle])[0]
 
-    # --------------------------------------------------
+
     # INICIAR SIMULACIÓN
-    # --------------------------------------------------
 
     def start_simulation(self) -> bool:
         """
@@ -212,9 +212,8 @@ class SimulationController:
 
             return True
 
-    # --------------------------------------------------
+
     # CREAR VEHÍCULOS
-    # --------------------------------------------------
 
     def add_vehicle(
         self,
@@ -329,9 +328,8 @@ class SimulationController:
 
         return self.add_vehicle(arrival_delay=delay)
 
-    # --------------------------------------------------
+    
     # GENERACIÓN AUTOMÁTICA
-    # --------------------------------------------------
 
     def _arrival_loop(self) -> None:
         """
@@ -376,9 +374,8 @@ class SimulationController:
         finally:
             self._publish_event("generation_stopped")
 
-    # --------------------------------------------------
+    
     # DETENER SIMULACIÓN
-    # --------------------------------------------------
 
     def _request_all_exits(self, reason: str) -> None:
         """
@@ -418,9 +415,8 @@ class SimulationController:
         # Orden: primero el Event de parada, luego las salidas.
         self._request_all_exits("simulation_stopped")
 
-    # --------------------------------------------------
+
     # SOLICITAR SALIDA MANUAL
-    # --------------------------------------------------
 
     def request_vehicle_exit(self, vehicle_id: str) -> None:
         """
@@ -453,9 +449,8 @@ class SimulationController:
             vehicle_id=vehicle_id,
         )
 
-    # --------------------------------------------------
+    
     # FINALIZACIÓN CONTROLADA DE LOS HILOS
-    # --------------------------------------------------
 
     def _terminate_workers(self, timeout: float) -> None:
         """
@@ -519,9 +514,7 @@ class SimulationController:
                 "espacios después de finalizar los hilos."
             )
 
-    # --------------------------------------------------
     # REINICIAR SIMULACIÓN
-    # --------------------------------------------------
 
     def reset_simulation(self, timeout: float = 5.0) -> None:
         """
@@ -553,9 +546,8 @@ class SimulationController:
 
         self._publish_event("simulation_reset")
 
-    # --------------------------------------------------
+    
     # CIERRE DE LA APLICACIÓN
-    # --------------------------------------------------
 
     def shutdown(self, timeout: float = 5.0) -> bool:
         """

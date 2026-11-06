@@ -22,15 +22,15 @@ LOCK            ← Lock()                     # protege espacios, cola, estados
 
 ```text
 VehicleWorker.run():
-    estado ← LLEGANDO;  publicar(vehicle_approaching)
+    estado: LLEGANDO;  publicar(vehicle_approaching)
 
     # Espera aleatoria antes de pedir acceso. Cancelable: no es sleep().
     si STOP.wait(timeout = retraso_llegada):
-        estado ← CANCELADO;  publicar(vehicle_cancelled);  terminar
+        estado: CANCELADO;  publicar(vehicle_cancelled);  terminar
 
     inicio_espera ← reloj_monotónico()
     publicar(vehicle_waiting)
-    plaza ← ParkingLot.occupy_space(vehículo, STOP, inicio_espera)   # ver sección 3
+    espacio ← ParkingLot.occupy_space(vehículo, STOP, inicio_espera)   # ver sección 3
     # tiempo_espera lo registra ParkingLot bajo LOCK (no incluye retraso_llegada)
 
     inicio_permanencia ← reloj_monotónico()
@@ -43,9 +43,9 @@ VehicleWorker.run():
     si STOP.is_set():                                    # la parada llegó justo al entrar
         motivo ← simulation_stopped
     sino si EXIT_i.wait(timeout = duración_permanencia): # salida manual o parada
-        motivo ← motivo_pedido_en(request_exit)
+        motivo: motivo_pedido_en(request_exit)
 
-    # Bloque finally: se ejecuta SIEMPRE que hubo plaza, incluso con errores.
+    # Bloque finally: se ejecuta SIEMPRE que hubo espacio, incluso con errores.
     tiempo_permanencia ← reloj_monotónico() − inicio_permanencia
     ParkingLot.mark_exiting(id, tiempo_permanencia)      # guarda el tiempo bajo LOCK
     publicar(vehicle_exiting, motivo)

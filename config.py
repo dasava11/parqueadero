@@ -1,9 +1,8 @@
 
 from pathlib import Path
 
-# Parámetros del parqueadero
+# Espacios del parqueadero
 PARKING_CAPACITY = 15
-
 
 # Generación automática de vehículos
 AUTO_GENERATION_ENABLED = True
@@ -27,13 +26,10 @@ PARKING_DURATION_MAX_SECONDS = 30.0
 # Concurrencia
 PARKING_ACQUIRE_POLL_INTERVAL_SECONDS = 0.05
 
-
 # Interfaz gráfica
 UI_REFRESH_INTERVAL_MS = 100
 
-
 RANDOM_SEED = 42
-
 
 # Registro de eventos
 PROJECT_ROOT = Path(__file__).resolve().parent
